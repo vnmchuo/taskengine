@@ -25,6 +25,7 @@ type TaskRecord struct {
 	State        taskenginev1.TaskState
 	AssignedNode string
 	RunCount     int32
+	RetryCount   int32
 	NextRun      time.Time
 	LastError    string
 	Job          *scheduler.Job
@@ -72,6 +73,20 @@ func NewServer(
 
 	// Wire engine executor to our adaptive egress rate limiting executor
 	engine.Executor = s.ExecuteTask
+
+	// Wire Dead Letter Queue handler for exhausted retries
+	engine.DLQHandler = func(ctx context.Context, j *scheduler.Job, finalErr error) {
+		s.tasksMu.Lock()
+		if rec, exists := s.tasks[j.ID]; exists {
+			rec.State = taskenginev1.TaskState_TASK_STATE_FAILED_DLQ
+			rec.RetryCount = int32(j.RetryCount)
+			rec.LastError = fmt.Sprintf("DLQ: exhausted retries: %v", finalErr)
+		}
+		s.tasksMu.Unlock()
+		log.Printf("[TaskEngine DLQ 🚨] Task %s entered Dead Letter Queue after %d attempts: %v",
+			j.ID, j.RetryCount, finalErr)
+	}
+
 	return s
 }
 
@@ -137,6 +152,9 @@ func (s *Server) ScheduleTask(ctx context.Context, req *taskenginev1.ScheduleTas
 		MaxRuns:        int(req.MaxRuns),
 		RateLimitKey:   req.RateLimitKey,
 		Weight:         weight,
+		MaxRetries:     int(req.MaxRetries),
+		InitialBackoff: time.Duration(req.InitialBackoffMs) * time.Millisecond,
+		MaxBackoff:     time.Duration(req.MaxBackoffMs) * time.Millisecond,
 	}
 
 	// 4. Save record locally
@@ -205,7 +223,7 @@ func (s *Server) ExecuteTask(ctx context.Context, j *scheduler.Job) error {
 
 			// Reschedule task back into priority queue with updated NextRun
 			s.Engine.AddJobWithContext(ctx, j)
-			return fmt.Errorf("task throttled by rate limit key %q", j.RateLimitKey)
+			return scheduler.ErrJobDeferred
 		}
 	}
 
@@ -308,6 +326,7 @@ func (s *Server) GetTaskStatus(ctx context.Context, req *taskenginev1.GetTaskSta
 		RunCount:     rec.RunCount,
 		NextRun:      timestamppb.New(rec.NextRun),
 		LastError:    rec.LastError,
+		RetryCount:   rec.RetryCount,
 	}, nil
 }
 
@@ -358,6 +377,9 @@ func (s *Server) ForwardJob(ctx context.Context, j *scheduler.Job) error {
 		MaxRuns:             int32(j.MaxRuns),
 		RateLimitKey:        j.RateLimitKey,
 		Weight:              int32(j.Weight),
+		MaxRetries:          int32(j.MaxRetries),
+		InitialBackoffMs:    j.InitialBackoff.Milliseconds(),
+		MaxBackoffMs:        j.MaxBackoff.Milliseconds(),
 	}
 	_, err := s.ScheduleTask(ctx, req)
 	return err

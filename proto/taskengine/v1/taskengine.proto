@@ -30,6 +30,9 @@ message ScheduleTaskRequest {
   string payload = 6;                // Task payload
   int64 repeat_interval_nanos = 7;   // Interval for recurring tasks (optional)
   int32 max_runs = 8;                // Max runs for recurring tasks (0 = unlimited)
+  int32 max_retries = 9;             // Maximum retry attempts upon failure
+  int64 initial_backoff_ms = 10;     // Base backoff in milliseconds
+  int64 max_backoff_ms = 11;         // Maximum backoff in milliseconds
 }
 
 message ScheduleTaskResponse {
@@ -65,6 +68,7 @@ enum TaskState {
   TASK_STATE_EXECUTING = 2;
   TASK_STATE_THROTTLED = 3;
   TASK_STATE_COMPLETED = 4;
+  TASK_STATE_FAILED_DLQ = 5;
 }
 
 message GetTaskStatusRequest {
@@ -78,4 +82,5 @@ message GetTaskStatusResponse {
   int32 run_count = 4;
   google.protobuf.Timestamp next_run = 5;
   string last_error = 6;
+  int32 retry_count = 7;
 }

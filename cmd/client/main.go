@@ -78,6 +78,7 @@ func handleSchedule(args []string) {
 	msg := fs.String("msg", "Hello TaskEngine", "Payload message")
 	repeatSec := fs.Int("repeat", 0, "Repeat interval in seconds (0 = one-off)")
 	maxRuns := fs.Int("max-runs", 0, "Max execution count (0 = unlimited)")
+	retries := fs.Int("retries", 0, "Max retry attempts on failure (0 = no retry)")
 	fs.Parse(args)
 
 	conn, client := dial(*target)
@@ -99,6 +100,9 @@ func handleSchedule(args []string) {
 		Payload:             *msg,
 		RepeatIntervalNanos: int64(time.Duration(*repeatSec) * time.Second),
 		MaxRuns:             int32(*maxRuns),
+		MaxRetries:          int32(*retries),
+		InitialBackoffMs:    1000,
+		MaxBackoffMs:        30000,
 	}
 
 	resp, err := client.ScheduleTask(ctx, req)
@@ -112,6 +116,7 @@ func handleSchedule(args []string) {
 	fmt.Printf("   Assigned Node:   %s\n", resp.AssignedNode)
 	fmt.Printf("   Execute At:      %s\n", execTime.Format("15:04:05"))
 	fmt.Printf("   Egress Target:   %s (weight: %d)\n", *rateLimitKey, *weight)
+	fmt.Printf("   Max Retries:     %d\n", *retries)
 	fmt.Printf("   Ingress Quota:   %d remaining\n", resp.IngressRemainingQuota)
 }
 

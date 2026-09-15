@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"context"
+	"errors"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -234,5 +235,95 @@ func TestTaskEngine_InspectQuota(t *testing.T) {
 
 	if resp.Limit != 5 || resp.Remaining != 5 {
 		t.Fatalf("expected limit 5 remaining 5, got limit=%d remaining=%d", resp.Limit, resp.Remaining)
+	}
+}
+
+func TestTaskEngine_RetryAndDLQ(t *testing.T) {
+	_, client, srv, cleanup := setupTestEnvironment(t, 100, 100, time.Minute)
+	defer cleanup()
+
+	var attempts atomic.Int32
+	srv.TaskHandler = func(ctx context.Context, j *scheduler.Job) error {
+		attempts.Add(1)
+		return errors.New("downstream webhook timeout")
+	}
+
+	ctxEngine, cancelEngine := context.WithCancel(context.Background())
+	defer cancelEngine()
+	go srv.Engine.Run(ctxEngine)
+
+	ctx := metadata.NewOutgoingContext(context.Background(), metadata.Pairs("x-tenant-id", "tenant-retry"))
+
+	// Schedule with MaxRetries=2, InitialBackoffMs=20, MaxBackoffMs=20
+	_, err := client.ScheduleTask(ctx, &taskenginev1.ScheduleTaskRequest{
+		Id:               "task-fail-dlq",
+		TenantId:         "tenant-retry",
+		Payload:          "important-event",
+		ScheduleTime:     timestamppb.New(time.Now().Add(10 * time.Millisecond)),
+		MaxRetries:       2,
+		InitialBackoffMs: 20,
+		MaxBackoffMs:     20,
+	})
+	if err != nil {
+		t.Fatalf("failed to schedule task: %v", err)
+	}
+
+	// Wait for retries to exhaust (1 initial + 2 retries = 3 attempts)
+	time.Sleep(300 * time.Millisecond)
+
+	statusResp, err := client.GetTaskStatus(ctx, &taskenginev1.GetTaskStatusRequest{Id: "task-fail-dlq"})
+	if err != nil {
+		t.Fatalf("failed to get task status: %v", err)
+	}
+
+	if statusResp.State != taskenginev1.TaskState_TASK_STATE_FAILED_DLQ {
+		t.Fatalf("expected state TASK_STATE_FAILED_DLQ, got %s", statusResp.State)
+	}
+	if statusResp.RetryCount != 2 {
+		t.Fatalf("expected retry count 2, got %d", statusResp.RetryCount)
+	}
+}
+
+func TestTaskEngine_RetryEventualSuccess(t *testing.T) {
+	_, client, srv, cleanup := setupTestEnvironment(t, 100, 100, time.Minute)
+	defer cleanup()
+
+	var attempts atomic.Int32
+	srv.TaskHandler = func(ctx context.Context, j *scheduler.Job) error {
+		attempt := attempts.Add(1)
+		if attempt < 2 {
+			return errors.New("temporary blip")
+		}
+		return nil // Success on attempt 2
+	}
+
+	ctxEngine, cancelEngine := context.WithCancel(context.Background())
+	defer cancelEngine()
+	go srv.Engine.Run(ctxEngine)
+
+	ctx := metadata.NewOutgoingContext(context.Background(), metadata.Pairs("x-tenant-id", "tenant-retry"))
+
+	_, err := client.ScheduleTask(ctx, &taskenginev1.ScheduleTaskRequest{
+		Id:               "task-retry-success",
+		TenantId:         "tenant-retry",
+		Payload:          "resilient-work",
+		ScheduleTime:     timestamppb.New(time.Now().Add(10 * time.Millisecond)),
+		MaxRetries:       3,
+		InitialBackoffMs: 20,
+		MaxBackoffMs:     20,
+	})
+	if err != nil {
+		t.Fatalf("failed to schedule task: %v", err)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	statusResp, err := client.GetTaskStatus(ctx, &taskenginev1.GetTaskStatusRequest{Id: "task-retry-success"})
+	if err != nil {
+		t.Fatalf("failed to get task status: %v", err)
+	}
+
+	if statusResp.State != taskenginev1.TaskState_TASK_STATE_COMPLETED {
+		t.Fatalf("expected state TASK_STATE_COMPLETED, got %s", statusResp.State)
 	}
 }

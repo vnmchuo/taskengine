@@ -64,6 +64,7 @@ flowchart TD
 * **Dual-Sided Rate Limiting**:
   - **Ingress**: Protects cluster API with tenant-level rate limiting (`X-RateLimit-*` gRPC trailers).
   - **Egress**: Protects third-party targets (`AllowN` weighted requests) with automatic backoff and rescheduling.
+* **Resilient Retry Policy & Dead Letter Queue (DLQ)**: Configurable `MaxRetries`, exponential backoff with full jitter, and terminal failure tracking via DLQ state.
 * **Zero External Dependencies Required for Dev**: Built-in fallback to embedded `miniredis` when no external Redis server is found.
 
 ---

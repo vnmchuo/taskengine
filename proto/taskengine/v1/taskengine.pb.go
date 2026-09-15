@@ -30,6 +30,7 @@ const (
 	TaskState_TASK_STATE_EXECUTING   TaskState = 2
 	TaskState_TASK_STATE_THROTTLED   TaskState = 3
 	TaskState_TASK_STATE_COMPLETED   TaskState = 4
+	TaskState_TASK_STATE_FAILED_DLQ  TaskState = 5
 )
 
 // Enum value maps for TaskState.
@@ -40,6 +41,7 @@ var (
 		2: "TASK_STATE_EXECUTING",
 		3: "TASK_STATE_THROTTLED",
 		4: "TASK_STATE_COMPLETED",
+		5: "TASK_STATE_FAILED_DLQ",
 	}
 	TaskState_value = map[string]int32{
 		"TASK_STATE_UNSPECIFIED": 0,
@@ -47,6 +49,7 @@ var (
 		"TASK_STATE_EXECUTING":   2,
 		"TASK_STATE_THROTTLED":   3,
 		"TASK_STATE_COMPLETED":   4,
+		"TASK_STATE_FAILED_DLQ":  5,
 	}
 )
 
@@ -87,6 +90,9 @@ type ScheduleTaskRequest struct {
 	Payload             string                 `protobuf:"bytes,6,opt,name=payload,proto3" json:"payload,omitempty"`                                                       // Task payload
 	RepeatIntervalNanos int64                  `protobuf:"varint,7,opt,name=repeat_interval_nanos,json=repeatIntervalNanos,proto3" json:"repeat_interval_nanos,omitempty"` // Interval for recurring tasks (optional)
 	MaxRuns             int32                  `protobuf:"varint,8,opt,name=max_runs,json=maxRuns,proto3" json:"max_runs,omitempty"`                                       // Max runs for recurring tasks (0 = unlimited)
+	MaxRetries          int32                  `protobuf:"varint,9,opt,name=max_retries,json=maxRetries,proto3" json:"max_retries,omitempty"`                              // Maximum retry attempts upon failure
+	InitialBackoffMs    int64                  `protobuf:"varint,10,opt,name=initial_backoff_ms,json=initialBackoffMs,proto3" json:"initial_backoff_ms,omitempty"`         // Base backoff in milliseconds
+	MaxBackoffMs        int64                  `protobuf:"varint,11,opt,name=max_backoff_ms,json=maxBackoffMs,proto3" json:"max_backoff_ms,omitempty"`                     // Maximum backoff in milliseconds
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -173,6 +179,27 @@ func (x *ScheduleTaskRequest) GetRepeatIntervalNanos() int64 {
 func (x *ScheduleTaskRequest) GetMaxRuns() int32 {
 	if x != nil {
 		return x.MaxRuns
+	}
+	return 0
+}
+
+func (x *ScheduleTaskRequest) GetMaxRetries() int32 {
+	if x != nil {
+		return x.MaxRetries
+	}
+	return 0
+}
+
+func (x *ScheduleTaskRequest) GetInitialBackoffMs() int64 {
+	if x != nil {
+		return x.InitialBackoffMs
+	}
+	return 0
+}
+
+func (x *ScheduleTaskRequest) GetMaxBackoffMs() int64 {
+	if x != nil {
+		return x.MaxBackoffMs
 	}
 	return 0
 }
@@ -505,6 +532,7 @@ type GetTaskStatusResponse struct {
 	RunCount      int32                  `protobuf:"varint,4,opt,name=run_count,json=runCount,proto3" json:"run_count,omitempty"`
 	NextRun       *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=next_run,json=nextRun,proto3" json:"next_run,omitempty"`
 	LastError     string                 `protobuf:"bytes,6,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
+	RetryCount    int32                  `protobuf:"varint,7,opt,name=retry_count,json=retryCount,proto3" json:"retry_count,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -581,11 +609,18 @@ func (x *GetTaskStatusResponse) GetLastError() string {
 	return ""
 }
 
+func (x *GetTaskStatusResponse) GetRetryCount() int32 {
+	if x != nil {
+		return x.RetryCount
+	}
+	return 0
+}
+
 var File_taskengine_v1_taskengine_proto protoreflect.FileDescriptor
 
 const file_taskengine_v1_taskengine_proto_rawDesc = "" +
 	"\n" +
-	"\x1etaskengine/v1/taskengine.proto\x12\rtaskengine.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xaa\x02\n" +
+	"\x1etaskengine/v1/taskengine.proto\x12\rtaskengine.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x9f\x03\n" +
 	"\x13ScheduleTaskRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\ttenant_id\x18\x02 \x01(\tR\btenantId\x12$\n" +
@@ -594,7 +629,12 @@ const file_taskengine_v1_taskengine_proto_rawDesc = "" +
 	"\rschedule_time\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\fscheduleTime\x12\x18\n" +
 	"\apayload\x18\x06 \x01(\tR\apayload\x122\n" +
 	"\x15repeat_interval_nanos\x18\a \x01(\x03R\x13repeatIntervalNanos\x12\x19\n" +
-	"\bmax_runs\x18\b \x01(\x05R\amaxRuns\"\xa7\x01\n" +
+	"\bmax_runs\x18\b \x01(\x05R\amaxRuns\x12\x1f\n" +
+	"\vmax_retries\x18\t \x01(\x05R\n" +
+	"maxRetries\x12,\n" +
+	"\x12initial_backoff_ms\x18\n" +
+	" \x01(\x03R\x10initialBackoffMs\x12$\n" +
+	"\x0emax_backoff_ms\x18\v \x01(\x03R\fmaxBackoffMs\"\xa7\x01\n" +
 	"\x14ScheduleTaskResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12#\n" +
@@ -613,7 +653,7 @@ const file_taskengine_v1_taskengine_proto_rawDesc = "" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\"&\n" +
 	"\x14GetTaskStatusRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\xef\x01\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x90\x02\n" +
 	"\x15GetTaskStatusResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12.\n" +
 	"\x05state\x18\x02 \x01(\x0e2\x18.taskengine.v1.TaskStateR\x05state\x12#\n" +
@@ -621,13 +661,16 @@ const file_taskengine_v1_taskengine_proto_rawDesc = "" +
 	"\trun_count\x18\x04 \x01(\x05R\brunCount\x125\n" +
 	"\bnext_run\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\anextRun\x12\x1d\n" +
 	"\n" +
-	"last_error\x18\x06 \x01(\tR\tlastError*\x8d\x01\n" +
+	"last_error\x18\x06 \x01(\tR\tlastError\x12\x1f\n" +
+	"\vretry_count\x18\a \x01(\x05R\n" +
+	"retryCount*\xa8\x01\n" +
 	"\tTaskState\x12\x1a\n" +
 	"\x16TASK_STATE_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12TASK_STATE_PENDING\x10\x01\x12\x18\n" +
 	"\x14TASK_STATE_EXECUTING\x10\x02\x12\x18\n" +
 	"\x14TASK_STATE_THROTTLED\x10\x03\x12\x18\n" +
-	"\x14TASK_STATE_COMPLETED\x10\x042\xf4\x02\n" +
+	"\x14TASK_STATE_COMPLETED\x10\x04\x12\x19\n" +
+	"\x15TASK_STATE_FAILED_DLQ\x10\x052\xf4\x02\n" +
 	"\x11TaskEngineService\x12W\n" +
 	"\fScheduleTask\x12\".taskengine.v1.ScheduleTaskRequest\x1a#.taskengine.v1.ScheduleTaskResponse\x12W\n" +
 	"\fInspectQuota\x12\".taskengine.v1.InspectQuotaRequest\x1a#.taskengine.v1.InspectQuotaResponse\x12Q\n" +
