@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package taskengine.v1;
+
+option go_package = "github.com/vnmchuo/taskengine/proto/taskengine/v1;taskenginev1";
+
+import "google/protobuf/timestamp.proto";
+
+// TaskEngineService provides distributed task scheduling with dual-sided (ingress and egress) rate limiting.
+service TaskEngineService {
+  // Schedule a new task with rate-limiting and sharding guarantees
+  rpc ScheduleTask(ScheduleTaskRequest) returns (ScheduleTaskResponse);
+
+  // Inspect the current rate limit quota for a given key without consuming tokens
+  rpc InspectQuota(InspectQuotaRequest) returns (InspectQuotaResponse);
+
+  // Cancel a scheduled task by ID
+  rpc CancelTask(CancelTaskRequest) returns (CancelTaskResponse);
+
+  // Retrieve current task details and status
+  rpc GetTaskStatus(GetTaskStatusRequest) returns (GetTaskStatusResponse);
+}
+
+message ScheduleTaskRequest {
+  string id = 1;
+  string tenant_id = 2;              // Identifier for ingress rate limiting
+  string rate_limit_key = 3;         // External target key for egress rate limiting (e.g. "vendor:openai", "endpoint:webhook")
+  int32 weight = 4;                  // Weight / token cost for egress rate limiting (default 1)
+  google.protobuf.Timestamp schedule_time = 5; // When task should execute
+  string payload = 6;                // Task payload
+  int64 repeat_interval_nanos = 7;   // Interval for recurring tasks (optional)
+  int32 max_runs = 8;                // Max runs for recurring tasks (0 = unlimited)
+}
+
+message ScheduleTaskResponse {
+  bool success = 1;
+  string message = 2;
+  string assigned_node = 3;
+  int64 ingress_remaining_quota = 4;
+}
+
+message InspectQuotaRequest {
+  string key = 1;
+}
+
+message InspectQuotaResponse {
+  string key = 1;
+  int64 remaining = 2;
+  int32 limit = 3;
+  int64 reset_after_ms = 4;
+}
+
+message CancelTaskRequest {
+  string id = 1;
+}
+
+message CancelTaskResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+enum TaskState {
+  TASK_STATE_UNSPECIFIED = 0;
+  TASK_STATE_PENDING = 1;
+  TASK_STATE_EXECUTING = 2;
+  TASK_STATE_THROTTLED = 3;
+  TASK_STATE_COMPLETED = 4;
+}
+
+message GetTaskStatusRequest {
+  string id = 1;
+}
+
+message GetTaskStatusResponse {
+  string id = 1;
+  TaskState state = 2;
+  string assigned_node = 3;
+  int32 run_count = 4;
+  google.protobuf.Timestamp next_run = 5;
+  string last_error = 6;
+}
