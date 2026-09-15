@@ -16,3 +16,6 @@ data_*/
 .idea/
 .vscode/
 *.swp
+
+# Private Documentation
+IDEA.md

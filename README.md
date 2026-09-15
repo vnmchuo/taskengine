@@ -86,7 +86,6 @@ taskengine/
 │       ├── taskengine.proto  # Protobuf service & message contracts
 │       ├── taskengine.pb.go
 │       └── taskengine_grpc.pb.go
-├── IDEA.md                   # Technical blueprint & interview playbook
 ├── README.md                 # Project documentation
 └── go.mod
 ```
